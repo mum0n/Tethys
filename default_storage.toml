@@ -1,0 +1,17 @@
+# ==============================================================================
+#  Tethys/default_storage.toml -- assimilation storage (user-editable)
+# ==============================================================================
+#
+#  Central shared registry for assimilated products across scenarios, regions,
+#  and projects (TethysFlow, TethysDrift, TethysPath, TethysBio, TethysBayes,
+#  TethysPop).
+#
+#  Resolved relative to the Tethys package root.
+# ==============================================================================
+
+[storage]
+# Central lakehouse registry root:
+store_root = "../lakehouse/Tethys"
+
+# Verify downloaded dataset SHA-256 against manifest checksums
+verify_checksum = true
