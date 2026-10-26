@@ -1,6 +1,6 @@
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.13.2"
+julia_version = "1.13.3"
 manifest_format = "2.1"
 project_hash = "a5311e63c38ee905e1b8d139f31a3c33af1e98fb"
 
@@ -12,10 +12,10 @@ version = "0.4.5"
 
 [[deps.Accessors]]
 deps = ["CompositionsBase", "ConstructionBase", "Dates", "InverseFunctions", "MacroTools"]
-git-tree-sha1 = "7063ad1083578215c7c4bf410368150abe8d5524"
+git-tree-sha1 = "8c0bc12397dabf5d2dfc4b5763ec463854cc44d3"
 registries = "General"
 uuid = "7d9f7c33-5ae7-4f3b-8dc6-eff91059b697"
-version = "0.1.45"
+version = "0.1.46"
 
     [deps.Accessors.extensions]
     AxisKeysExt = "AxisKeys"
@@ -96,10 +96,10 @@ version = "0.4.0"
 
 [[deps.ArrayLayouts]]
 deps = ["FillArrays", "LinearAlgebra", "StaticArrays"]
-git-tree-sha1 = "b4a2d2dfcaedf8f0cb93a970c4ccba6f632f14cc"
+git-tree-sha1 = "8fde25d92e917350570f1203e47c933d16b77dce"
 registries = "General"
 uuid = "4c555306-a7a7-4459-81d9-ec55ddd5c99a"
-version = "1.15.1"
+version = "1.16.0"
 weakdeps = ["SparseArrays"]
 
     [deps.ArrayLayouts.extensions]
@@ -301,10 +301,10 @@ weakdeps = ["StyledStrings"]
 
 [[deps.ColorVectorSpace]]
 deps = ["ColorTypes", "FixedPointNumbers", "LinearAlgebra", "Requires", "Statistics", "TensorCore"]
-git-tree-sha1 = "8b3b6f87ce8f65a2b4f857528fd8d70086cd72b1"
+git-tree-sha1 = "a4e53eb7a1779254f92c1cc1302c2bc6acdba560"
 registries = "General"
 uuid = "c3611d14-8923-5661-9e6a-0046d554d3a4"
-version = "0.11.0"
+version = "0.11.1"
 weakdeps = ["SpecialFunctions"]
 
     [deps.ColorVectorSpace.extensions]
@@ -511,10 +511,10 @@ uuid = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 version = "1.11.0"
 
 [[deps.DocStringExtensions]]
-git-tree-sha1 = "7442a5dfe1ebb773c29cc2962a8980f47221d76c"
+git-tree-sha1 = "38ef52f18cbdfa783ec6c25acc23fb1e8525ec16"
 registries = "General"
 uuid = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
-version = "0.9.5"
+version = "0.10.2"
 
 [[deps.Downloads]]
 deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
@@ -582,10 +582,10 @@ version = "1.11.0"
 
 [[deps.FillArrays]]
 deps = ["LinearAlgebra"]
-git-tree-sha1 = "417289ac840d201005d9ed16789a46defccbe36d"
+git-tree-sha1 = "831f86fde78ab7f6470d6ba4d1161a11fb6b4ec0"
 registries = "General"
 uuid = "1a297f60-69ca-5386-bcde-b61e274b549b"
-version = "1.18.1"
+version = "1.18.2"
 
     [deps.FillArrays.extensions]
     FillArraysPDMatsExt = "PDMats"
@@ -631,10 +631,10 @@ version = "1.11.0"
 
 [[deps.GDAL]]
 deps = ["CEnum", "GDAL_jll", "NetworkOptions", "PROJ_jll"]
-git-tree-sha1 = "020bb41d1b52ef795cc02253209a994c83262fbb"
+git-tree-sha1 = "53663ff73c3bded84c03a91101788f38dc9eac08"
 registries = "General"
 uuid = "add2ef01-049f-52c4-9ee2-e494f65e021a"
-version = "1.13.0"
+version = "1.13.1"
 
 [[deps.GDAL_jll]]
 deps = ["Arrow_jll", "Artifacts", "Blosc_jll", "CompilerSupportLibraries_jll", "Expat_jll", "GEOS_jll", "HDF4_jll", "HDF5_jll", "JLLWrappers", "LERC_jll", "LibCURL_jll", "LibPQ_jll", "Libdl", "Libtiff_jll", "Lz4_jll", "MPIABI_jll", "MPICH_jll", "MPIPreferences", "MPItrampoline_jll", "MicrosoftMPI_jll", "NetCDF_jll", "OpenJpeg_jll", "OpenMPI_jll", "PCRE2_jll", "PROJ_jll", "Qhull_jll", "SQLite_jll", "TOML", "XML2_jll", "XZ_jll", "Zlib_jll", "Zstd_jll", "grok_jll", "libgeotiff_jll", "libpng_jll", "libwebp_jll", "muparser_jll"]
@@ -734,11 +734,11 @@ uuid = "0234f1f7-429e-5d53-9886-15a909be8d59"
 version = "2.2.3+0"
 
 [[deps.HTTP]]
-deps = ["Base64", "CodecZlib", "Dates", "EnumX", "Logging", "PrecompileTools", "Random", "Reseau", "SHA", "URIs", "UUIDs", "Zlib_jll"]
-git-tree-sha1 = "fdb68964f125c757e6638e25255ac6a5059d7a56"
+deps = ["Base64", "CodecZlib", "Dates", "EnumX", "Logging", "PrecompileTools", "Random", "Reseau", "SHA", "TranscodingStreams", "URIs", "UUIDs", "Zlib_jll"]
+git-tree-sha1 = "77e716661f5e911a9eca3297b80be7df847e3fdd"
 registries = "General"
 uuid = "cd3eb016-35fb-5094-929b-558a96fad6f3"
-version = "2.12.2"
+version = "2.12.3"
 
 [[deps.HashArrayMappedTries]]
 git-tree-sha1 = "2eaa69a7cab70a52b9687c8bf950a5a93ec895ae"
@@ -805,14 +805,15 @@ uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
 version = "1.11.0"
 
 [[deps.Interpolations]]
-deps = ["Adapt", "AxisAlgorithms", "ChainRulesCore", "LinearAlgebra", "OffsetArrays", "Random", "Ratios", "Requires", "SharedArrays", "SparseArrays", "StaticArrays", "WoodburyMatrices"]
-git-tree-sha1 = "c6c24bc9db44d9ad66af947398380233900e2bcd"
+deps = ["Adapt", "AxisAlgorithms", "ChainRulesCore", "LinearAlgebra", "OffsetArrays", "Random", "Ratios", "SharedArrays", "SparseArrays", "StaticArrays", "WoodburyMatrices"]
+git-tree-sha1 = "48922d06068130f87e43edef52382e6a94305ae6"
 registries = "General"
 uuid = "a98d9a8b-a2ab-59e6-89dd-64a1c18fca59"
-version = "0.15.2"
-weakdeps = ["Unitful"]
+version = "0.16.3"
+weakdeps = ["ForwardDiff", "Unitful"]
 
     [deps.Interpolations.extensions]
+    InterpolationsForwardDiffExt = "ForwardDiff"
     InterpolationsUnitfulExt = "Unitful"
 
 [[deps.IntervalArithmetic]]
@@ -970,10 +971,10 @@ version = "1.4.1"
 
 [[deps.LazyArrays]]
 deps = ["ArrayLayouts", "FillArrays", "LinearAlgebra", "MacroTools", "SparseArrays"]
-git-tree-sha1 = "ce8ddb68a18592ee5c295471ced2769c8491246c"
+git-tree-sha1 = "1eacd657b15ab8b86aa943630f0b72047cb73115"
 registries = "General"
 uuid = "5078a376-72f3-5289-bfd5-ec5146d43c02"
-version = "2.14.6"
+version = "2.14.7"
 
     [deps.LazyArrays.extensions]
     LazyArraysBandedMatricesExt = "BandedMatrices"
@@ -1196,7 +1197,7 @@ version = "0.3.4"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2026.8.13"
+version = "2026.10.20"
 
 [[deps.NCDatasets]]
 deps = ["CFTime", "CommonDataModel", "DataStructures", "Dates", "DiskArrays", "NetCDF_jll", "NetworkOptions", "Printf"]
@@ -1227,10 +1228,10 @@ version = "0.4.29"
 
 [[deps.NetCDF_jll]]
 deps = ["Artifacts", "Blosc_jll", "Bzip2_jll", "HDF5_jll", "JLLWrappers", "LibCURL_jll", "Libdl", "MPIABI_jll", "MPICH_jll", "MPIPreferences", "MPItrampoline_jll", "MicrosoftMPI_jll", "OpenMPI_jll", "TOML", "XML2_jll", "Zlib_jll", "Zstd_jll", "libaec_jll", "libzip_jll"]
-git-tree-sha1 = "7c9b27b0fb15ec998ba0b56f05078c573fe88bf0"
+git-tree-sha1 = "62410b2b2ce08416a435f550c404a42a2e7e2b4b"
 registries = "General"
 uuid = "7243133f-43d8-5620-bbf4-c2c921802cf3"
-version = "401.1000.102+0"
+version = "401.1000.102+1"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -1298,7 +1299,7 @@ version = "1.8.2"
 [[deps.PCRE2_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "efcefdf7-47ab-520b-bdef-62a2eaa19f15"
-version = "10.46.0+0"
+version = "10.47.0+0"
 
 [[deps.PROJ_jll]]
 deps = ["Artifacts", "JLLWrappers", "LibCURL_jll", "Libdl", "Libtiff_jll", "SQLite_jll"]
@@ -1473,10 +1474,10 @@ version = "1.0.0"
 
 [[deps.SQLite_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Zlib_jll", "dlfcn_win32_jll"]
-git-tree-sha1 = "581bc13ec7f43745b20f8ff0e70b931ac5c4fdbe"
+git-tree-sha1 = "9df7e0651033430b3b48435b90ecf32059bf85f4"
 registries = "General"
 uuid = "76ed43ae-9a5d-5a62-8c75-30186b810ce8"
-version = "3.54.0+0"
+version = "3.54.0+1"
 
 [[deps.ScopedValues]]
 deps = ["HashArrayMappedTries", "Logging"]
@@ -1498,10 +1499,10 @@ version = "1.11.0"
 
 [[deps.Setfield]]
 deps = ["ConstructionBase", "Future", "MacroTools", "StaticArraysCore"]
-git-tree-sha1 = "c5391c6ace3bc430ca630251d02ea9687169ca68"
+git-tree-sha1 = "1a17a79e9dffc0d188c81c7ea58e8cc79752df7e"
 registries = "General"
 uuid = "efcf1570-3423-57d1-acb7-fd33fddbac46"
-version = "1.1.2"
+version = "1.1.3"
 
 [[deps.Shapefile]]
 deps = ["DBFTables", "DataAPI", "Extents", "GeoFormatTypes", "GeoInterface", "OrderedCollections", "Tables"]
@@ -1807,10 +1808,10 @@ version = "1.4.3"
 
 [[deps.WellKnownGeometry]]
 deps = ["GeoFormatTypes", "GeoInterface", "PrecompileTools"]
-git-tree-sha1 = "f7f727a488629135d3e83d5750723a400072f9bb"
+git-tree-sha1 = "e92055e4a7161554cce8f07645fea68f3e9b61f2"
 registries = "General"
 uuid = "0f680547-7be7-4555-8820-bb198eeb646b"
-version = "0.2.8"
+version = "0.2.9"
 
     [deps.WellKnownGeometry.extensions]
     WellKnownGeometryMakieExt = "Makie"
@@ -1891,17 +1892,73 @@ uuid = "c5fb5394-a638-5e4d-96e5-b29de1b5cf10"
 version = "1.6.0+0"
 
 [[deps.Zarr]]
-deps = ["Blosc", "CRC32c", "ChunkCodecCore", "ChunkCodecLibZlib", "ChunkCodecLibZstd", "DataStructures", "DateTimes64", "Dates", "DiskArrays", "HTTP", "JSON", "OffsetArrays", "OrderedCollections", "Pkg", "URIs", "Unicode", "ZipArchives"]
-git-tree-sha1 = "d448244b07ecfc658d8153c4d50ffd5961c6d4a6"
+deps = ["Preferences", "ZarrBlosc", "ZarrCore", "ZarrGCS", "ZarrHTTP", "ZarrS3", "ZarrZip", "ZarrZlib", "ZarrZstd"]
+git-tree-sha1 = "b89985d618d9de2759761863ac2dd4735cdafc65"
 registries = "General"
 uuid = "0a941bbe-ad1d-11e8-39d9-ab76183a1d99"
-version = "0.10.2"
+version = "0.11.2"
 
-    [deps.Zarr.extensions]
-    ZarrAWSS3Ext = "AWSS3"
+[[deps.ZarrBlosc]]
+deps = ["Blosc", "JSON", "ZarrCore"]
+git-tree-sha1 = "df7a8e2ec009ab24ac628c3f243c816d7577ee3b"
+registries = "General"
+uuid = "5717d1f5-dd42-40cd-8e77-00dfad1079f5"
+version = "0.11.0"
 
-    [deps.Zarr.weakdeps]
+[[deps.ZarrCore]]
+deps = ["CRC32c", "DateTimes64", "Dates", "DiskArrays", "JSON", "OrderedCollections", "Preferences", "Unicode"]
+git-tree-sha1 = "554e49d1149bc422fe84b36bf55bfe3d5c8f9952"
+registries = "General"
+uuid = "77f5b75c-4c08-499f-ba13-550b0a0af171"
+version = "0.11.2"
+
+[[deps.ZarrGCS]]
+deps = ["HTTP", "JSON", "URIs", "ZarrCore"]
+git-tree-sha1 = "6ec6917a515d9b0ded019da6a690b2ed75bcb281"
+registries = "General"
+uuid = "b0c5ce8f-018f-417d-9deb-9816b6363039"
+version = "0.11.0"
+
+[[deps.ZarrHTTP]]
+deps = ["HTTP", "ZarrCore"]
+git-tree-sha1 = "a73476fba804b1bca09f9c3a7b30119b501bc533"
+registries = "General"
+uuid = "904a97b2-8abf-4ac8-b211-6540db5c2c8c"
+version = "0.11.1"
+
+[[deps.ZarrS3]]
+deps = ["ZarrCore"]
+git-tree-sha1 = "ae5d7b010e1af56e9530f99db9b0a30816e7011c"
+registries = "General"
+uuid = "3ac672aa-0e94-41ce-be0d-2f83c20261dd"
+version = "0.11.0"
+
+    [deps.ZarrS3.extensions]
+    ZarrS3AWSS3Ext = "AWSS3"
+
+    [deps.ZarrS3.weakdeps]
     AWSS3 = "1c724243-ef5b-51ab-93f4-b0a88ac62a95"
+
+[[deps.ZarrZip]]
+deps = ["ZarrCore", "ZipArchives"]
+git-tree-sha1 = "824831177f4233a9738d1a760c1c7f8ddff7df1b"
+registries = "General"
+uuid = "54bcf1c8-e61d-4e4f-b375-463581846cca"
+version = "0.11.0"
+
+[[deps.ZarrZlib]]
+deps = ["ChunkCodecCore", "ChunkCodecLibZlib", "JSON", "ZarrCore"]
+git-tree-sha1 = "d4db8da8ee03c7528e93fa0fe356dfb24e308283"
+registries = "General"
+uuid = "5ee7c756-6ac8-46ad-a53f-994846513443"
+version = "0.11.1"
+
+[[deps.ZarrZstd]]
+deps = ["ChunkCodecCore", "ChunkCodecLibZstd", "JSON", "ZarrCore"]
+git-tree-sha1 = "53c98b9be58271a2e5cdb3a9805800828cc1b6df"
+registries = "General"
+uuid = "1a1ab68b-db27-4b87-8dee-6752e2bcfa1e"
+version = "0.11.0"
 
 [[deps.ZipArchives]]
 deps = ["ArgCheck", "CodecInflate64", "CodecZlib", "InputBuffers", "PrecompileTools", "TranscodingStreams", "Zlib_jll"]

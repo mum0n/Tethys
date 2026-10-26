@@ -75,7 +75,7 @@ function backend_open(backend::ZarrBackend, uri::AbstractString; kwargs...)
         end
     end
 
-    crs = CoordinateSystem(crs = something(get(g.attrs, "crs", nothing), "EPSG:4326"))
+    crs = CoordinateSystem(g.attrs)
     coords = Dict{Symbol, GeoArray}()
     dims = Dict{Symbol, Dimension}()
 
@@ -278,8 +278,15 @@ function backend_write(backend::ZarrBackend, uri::AbstractString,
             "another path.")
         rm(path; recursive = true)
     end
+    dataset_attrs = copy(ds.attrs)
+    for (key, value) in coordinate_system_attributes(ds.crs)
+        if haskey(dataset_attrs, key) && string(dataset_attrs[key]) != string(value)
+            throw(ArgumentError("Dataset attribute $(repr(key)) conflicts with its CoordinateSystem."))
+        end
+        dataset_attrs[key] = value
+    end
     g = backend_create(backend, path, ds.dims;
-                       attrs = merge(_dimension_record(ds.dims), ds.attrs), overwrite = true)
+                       attrs = merge(_dimension_record(ds.dims), dataset_attrs), overwrite = true)
 
     # Dimensions first: coordinate arrays define the axes the variables are chunked on. A
     # dimension with no coordinate array is not an error: a Zarr array's `.zarray` carries its

@@ -10,10 +10,13 @@ using CoordRefSystems
 using CoordRefSystems: Shift, WGS84Latest, CRS as CRSSystem, Projected, EPSG, ESRI, string2code
 using Unitful: °, m
 using Interpolations
+using ..Types: GeoDataset, GeoArray, CoordinateSystem
+using ..Coordinates: axis, dim_permutation
 
 export
     AbstractProjection,
     GeographicProjection,
+    CoordRefSystemsGeographicProjection,
     CoordRefSystemsProjection,
     UTMProjection,
     LambertProjection,
@@ -36,13 +39,15 @@ export
     optimal_shelf_rotation_angle,
     utm_to_lonlat,
     lonlat_to_utm,
-    is_geographic_coordinates,
     extract_wkt,
     is_wgs84_wkt,
     CoordinateTransformer,
     build_coordinate_transformer,
     transform_point,
-    transform_polygon
+    transform_polygon,
+    transform_vector_dataset,
+    projection_from_crs,
+    transform_coordinates
 
 # ==============================================================================
 # Geodetic Constants
@@ -90,6 +95,26 @@ inverse_project(::GeographicProjection, x::Real, y::Real) =
     (Float64(x), Float64(y))
 
 grid_convergence_angle(::GeographicProjection, lon::Real, lat::Real) = 0.0
+
+"""A geographic CRS wrapper retaining non-WGS84 datum metadata from CoordRefSystems."""
+struct CoordRefSystemsGeographicProjection{C} <: AbstractProjection
+    crs::C
+end
+
+is_planar(::CoordRefSystemsGeographicProjection) = false
+
+function forward_project(proj::CoordRefSystemsGeographicProjection, lon::Real, lat::Real)
+    point = convert(proj.crs, LatLon(Float64(lat) * °, Float64(lon) * °))
+    return (Float64(point.lon / °), Float64(point.lat / °))
+end
+
+function inverse_project(proj::CoordRefSystemsGeographicProjection, x::Real, y::Real)
+    point = proj.crs(Float64(x) * °, Float64(y) * °)
+    geographic = convert(LatLon, point)
+    return (Float64(geographic.lon / °), Float64(geographic.lat / °))
+end
+
+grid_convergence_angle(::CoordRefSystemsGeographicProjection, lon::Real, lat::Real) = 0.0
 
 # ==============================================================================
 # 2. CoordRefSystems.jl Wrapper Projection
@@ -425,13 +450,10 @@ function resolve_crs(crs_spec)
             code = parse(Int, str)
             return CoordRefSystems.get(EPSG{code})
         end
-        # WKT or named CRS in CoordRefSystems
-        try
-            c = CoordRefSystems.string2code(str)
-            return CoordRefSystems.get(c)
-        catch
-            return nothing
-        end
+        # CoordRefSystems resolves WKT1/WKT2 identifiers to its registered CRS types.
+        # Do not turn parse failures into an implicit fallback projection.
+        c = CoordRefSystems.string2code(str)
+        return CoordRefSystems.get(c)
     end
     return nothing
 end
@@ -478,6 +500,38 @@ function create_projection(spec::Union{AbstractString, Symbol}; kwargs...)
     end
 end
 
+function _projection_from_resolved_crs(
+    resolved; lon_center, lat_center, rotation_deg, extent_x, extent_y
+)
+    if resolved <: Projected
+        cx = 0.0
+        cy = 0.0
+        if lon_center !== nothing && lat_center !== nothing
+            point = convert(resolved, LatLon(Float64(lat_center) * °, Float64(lon_center) * °))
+            cx, cy = Float64(point.x / m), Float64(point.y / m)
+        end
+        angle = Float64(rotation_deg)
+        return CoordRefSystemsProjection(
+            resolved, cx, cy, angle, cosd(angle), sind(angle))
+    elseif resolved <: LatLon
+        wgs84 = CoordRefSystems.get(EPSG{4326})
+        if resolved === wgs84
+            if rotation_deg != 0.0
+                lon0 = lon_center === nothing ? 0.0 : Float64(lon_center)
+                lat0 = lat_center === nothing ? 0.0 : Float64(lat_center)
+                return RotatedFrame(lon0, lat0, rotation_deg, extent_x, extent_y)
+            end
+            return GeographicProjection()
+        end
+        rotation_deg == 0.0 || throw(ArgumentError(
+            "A rotation cannot be combined with geographic datum CRS $(resolved); " *
+            "define the rotation as a separate projected frame."))
+        return CoordRefSystemsGeographicProjection(resolved)
+    end
+    throw(ArgumentError("CoordRefSystems CRS $(resolved) is not a supported 2-D " *
+                        "geographic or projected coordinate reference system."))
+end
+
 function create_projection(;
     projection::Any = "geographic",
     crs::Any = nothing,
@@ -490,63 +544,35 @@ function create_projection(;
     extent_x::Real = 0.0,
     extent_y::Real = 0.0
 )
-    # 1. First check explicit crs argument
+    # 1. First check explicit CRS argument. An invalid CRS must never fall through to
+    #    the default geographic projection.
     if crs !== nothing && crs !== ""
-        resolved = resolve_crs(crs)
-        if resolved !== nothing
-            if resolved <: Projected
-                cx = 0.0
-                cy = 0.0
-                if lon_center !== nothing && lat_center !== nothing
-                    pt_ll = LatLon(Float64(lat_center) * °, Float64(lon_center) * °)
-                    pt_proj = convert(resolved, pt_ll)
-                    cx = Float64(pt_proj.x / m)
-                    cy = Float64(pt_proj.y / m)
-                end
-                rot_rad = deg2rad(Float64(rotation_deg))
-                return CoordRefSystemsProjection(
-                    resolved, cx, cy, Float64(rotation_deg), cos(rot_rad), sin(rot_rad)
-                )
-            else
-                if rotation_deg != 0.0
-                    l_c = lon_center === nothing ? 0.0 : Float64(lon_center)
-                    p_c = lat_center === nothing ? 0.0 : Float64(lat_center)
-                    return RotatedFrame(l_c, p_c, rotation_deg, extent_x, extent_y)
-                end
-                return GeographicProjection()
-            end
+        resolved = try
+            resolve_crs(crs)
+        catch err
+            throw(ArgumentError("Could not resolve CRS $(repr(crs)) with CoordRefSystems: " *
+                                sprint(showerror, err)))
         end
+        resolved === nothing && throw(ArgumentError(
+            "CRS $(repr(crs)) is not supported by CoordRefSystems."))
+        return _projection_from_resolved_crs(
+            resolved; lon_center, lat_center, rotation_deg, extent_x, extent_y)
     end
 
-    # 2. If projection is a CRS type or integer EPSG code or WKT string
-    resolved_proj = resolve_crs(projection)
-    if resolved_proj !== nothing
-        if resolved_proj <: Projected
-            cx = 0.0
-            cy = 0.0
-            if lon_center !== nothing && lat_center !== nothing
-                pt_ll = LatLon(Float64(lat_center) * °, Float64(lon_center) * °)
-                pt_proj = convert(resolved_proj, pt_ll)
-                cx = Float64(pt_proj.x / m)
-                cy = Float64(pt_proj.y / m)
-            end
-            rot_rad = deg2rad(Float64(rotation_deg))
-            return CoordRefSystemsProjection(
-                resolved_proj, cx, cy, Float64(rotation_deg), cos(rot_rad), sin(rot_rad)
-            )
-        else
-            if rotation_deg != 0.0
-                l_c = lon_center === nothing ? 0.0 : Float64(lon_center)
-                p_c = lat_center === nothing ? 0.0 : Float64(lat_center)
-                return RotatedFrame(l_c, p_c, rotation_deg, extent_x, extent_y)
-            end
-            return GeographicProjection()
-        end
-    end
-
+    # 2. Named projection aliases are not CRS strings; all other values are resolved
+    #    strictly through CoordRefSystems (including WKT and authority identifiers).
     proj_str = string(projection)
-    clean_name = lowercase(strip(proj_str))
-    clean_name = replace(clean_name, "-" => "_")
+    clean_name = replace(lowercase(strip(proj_str)), "-" => "_")
+    named_projection = clean_name in (
+        "geographic", "latlon", "wgs84", "none", "", "utm",
+        "universal_transverse_mercator", "lambert", "lcc",
+        "lambert_conformal_conic", "mercator", "transverse_mercator",
+        "rotated", "oblique", "oblique_mercator", "omerc")
+    resolved_proj = named_projection ? nothing : resolve_crs(projection)
+    if resolved_proj !== nothing
+        return _projection_from_resolved_crs(
+            resolved_proj; lon_center, lat_center, rotation_deg, extent_x, extent_y)
+    end
 
     if clean_name in ("geographic", "latlon", "wgs84", "none", "")
         if rotation_deg != 0.0
@@ -694,6 +720,112 @@ Transform grid-aligned velocity components back to true geographic orientation (
 function rotate_vector_to_geo(proj::AbstractProjection, u_grid, v_grid, lon, lat)
     gamma = grid_convergence_angle(proj, lon, lat)
     return unrotate_vector(u_grid, v_grid, gamma)
+end
+
+"""Resolve a declared CRS or dataset `CoordinateSystem` through CoordRefSystems."""
+function projection_from_crs(spec; kwargs...)
+    if spec isa CoordinateSystem
+        candidates = String[]
+        !isempty(strip(spec.crs)) && push!(candidates, strip(spec.crs))
+        !isnothing(spec.wkt) && !isempty(strip(spec.wkt)) && push!(candidates, strip(spec.wkt))
+        !isnothing(spec.proj4) && !isempty(strip(spec.proj4)) && push!(candidates, strip(spec.proj4))
+        isempty(candidates) && throw(ArgumentError(
+            "CoordinateSystem has no CRS, WKT, or PROJ definition."))
+        resolved = map(resolve_crs, candidates)
+        all(==(first(resolved)), resolved) || throw(ArgumentError(
+            "CoordinateSystem contains conflicting CRS/WKT/PROJ definitions."))
+        return create_projection(projection = first(candidates); kwargs...)
+    end
+    return create_projection(projection = spec; kwargs...)
+end
+
+"""Transform one coordinate from `source` CRS coordinates to `target` CRS coordinates."""
+function transform_coordinates(
+    source::AbstractProjection, target::AbstractProjection, x::Real, y::Real
+)
+    lon, lat = inverse_project(source, x, y)
+    return forward_project(target, lon, lat)
+end
+
+"""A stable identity for projection-specific derived geospatial products."""
+projection_signature(projection::AbstractProjection) =
+    string(typeof(projection), ":", repr(projection))
+
+"""
+    transform_vector_dataset(ds, projection; pairs)
+
+Rotate declared geographic east/north vector pairs into `projection`'s local grid frame.
+Each pair is `(u_name, v_name, output_u_name, output_v_name)`. Spatial coordinates and
+scalar variables are preserved; only listed components are transformed.
+"""
+function transform_vector_dataset(ds::GeoDataset, projection::AbstractProjection; pairs::Tuple)
+    source_projection = projection_from_crs(ds.crs)
+    is_planar(source_projection) && throw(ArgumentError(
+        "Vector components must be defined on geographic coordinates before rotation; " *
+        "dataset CRS is $(repr(ds.crs))."))
+    lon, _ = axis(ds, :lon)
+    lat, _ = axis(ds, :lat)
+    lon_wgs = Matrix{Float64}(undef, length(lon), length(lat))
+    lat_wgs = similar(lon_wgs)
+    geographic = GeographicProjection()
+    for j in eachindex(lat), i in eachindex(lon)
+        lon_wgs[i, j], lat_wgs[i, j] = transform_coordinates(
+            source_projection, geographic, lon[i], lat[j])
+    end
+
+    variables = copy(ds.variables)
+    for (u_name, v_name, out_u_name, out_v_name) in pairs
+        ukey, vkey = string(u_name), string(v_name)
+        haskey(ds.variables, ukey) || throw(ArgumentError(
+            "Vector dataset has no variable $(repr(ukey))."))
+        haskey(ds.variables, vkey) || throw(ArgumentError(
+            "Vector dataset has no variable $(repr(vkey))."))
+        u_source, v_source = ds.variables[ukey], ds.variables[vkey]
+        size(u_source) == size(v_source) && u_source.dims == v_source.dims ||
+            throw(ArgumentError("Vector components $(repr(ukey)) and $(repr(vkey)) must " *
+                                "have identical dimensions and sizes."))
+        u_grid, v_grid = _rotate_vector_array(
+            u_source.data, v_source.data, u_source.dims, lon, lat, lon_wgs, lat_wgs, projection)
+
+        u_attrs, v_attrs = copy(u_source.attrs), copy(v_source.attrs)
+        u_attrs["vector_frame"] = "model_grid"
+        v_attrs["vector_frame"] = "model_grid"
+        u_attrs["source_component"] = ukey
+        v_attrs["source_component"] = vkey
+        variables[string(out_u_name)] = GeoArray(u_grid, u_source.dims, u_source.crs, u_attrs)
+        variables[string(out_v_name)] = GeoArray(v_grid, v_source.dims, v_source.crs, v_attrs)
+    end
+
+    attrs = copy(ds.attrs)
+    attrs["vector_frame"] = "model_grid"
+    attrs["projection_signature"] = projection_signature(projection)
+    attrs["transformation"] =
+        "Geographic east/north vector components rotated to local model-grid axes"
+    return GeoDataset(variables, copy(ds.coords), copy(ds.dims), ds.crs, attrs,
+                      ds.backend, ds.source)
+end
+
+function _rotate_vector_array(u, v, dims, lon, lat, lon_wgs, lat_wgs, projection)
+    permutation = dim_permutation(dims, :lon, :lat)
+    remaining = [i for i in eachindex(dims) if !(i in permutation)]
+    permutation = vcat(permutation, remaining)
+    u_ordered = permutedims(Float64.(Array(u)), permutation)
+    v_ordered = permutedims(Float64.(Array(v)), permutation)
+    size(u_ordered, 1) == length(lon) && size(u_ordered, 2) == length(lat) ||
+        throw(DimensionMismatch("Vector components do not match dataset horizontal axes."))
+
+    u3 = reshape(copy(u_ordered), length(lon), length(lat), :)
+    v3 = reshape(copy(v_ordered), length(lon), length(lat), :)
+    for k in axes(u3, 3), j in axes(u3, 2), i in axes(u3, 1)
+        ue, vn = u3[i, j, k], v3[i, j, k]
+        if isfinite(ue) && isfinite(vn)
+            u3[i, j, k], v3[i, j, k] = rotate_vector_to_grid(
+                projection, ue, vn, lon_wgs[i, j], lat_wgs[i, j])
+        end
+    end
+    shape = size(u_ordered)
+    return (permutedims(reshape(u3, shape), invperm(permutation)),
+            permutedims(reshape(v3, shape), invperm(permutation)))
 end
 
 # ==============================================================================
@@ -929,69 +1061,6 @@ function lonlat_to_utm(
     return (x_m * scale_out, y_m * scale_out)
 end
 
-"""
-    is_geographic_coordinates(coords)::Bool
-
-Infers whether spatial coordinates are in geographic `(lon, lat)` space versus abstract
-planar Cartesian `(x, y)` space.
-
-# Mathematical Criteria
-1. Hard WGS84 bounding box: Longitudes must strictly reside within `[-180, 180]`,
-   and Latitudes within `[-90, 90]`.
-2. Planar origin check: Non-negative coordinates starting near `(0, 0)` with synthetic
-   extents (e.g. `[0, 100]`, `[0, 10]`, `[0, 1]`) are classified as planar.
-3. Marine regional domain checks (Scotian Shelf, Atlantic Canada, Pacific, Europe).
-
-# Inputs
-- `coords`: Collection of 2D coordinate pairs `(x, y)`.
-
-# Outputs
-- `Bool`: `true` if coordinates represent geographic WGS84 degrees, `false` otherwise.
-"""
-function is_geographic_coordinates(coords)::Bool
-    if isempty(coords)
-        return false
-    end
-    xs = Float64[]
-    ys = Float64[]
-    for pt in coords
-        if length(pt) >= 2 && !isnan(pt[1]) && !isnan(pt[2])
-            push!(xs, float(pt[1]))
-            push!(ys, float(pt[2]))
-        end
-    end
-    if isempty(xs) || isempty(ys)
-        return false
-    end
-    min_x, max_x = minimum(xs), maximum(xs)
-    min_y, max_y = minimum(ys), maximum(ys)
-
-    # 1. Hard limits for WGS84 Geographic degrees
-    if min_y < -90.0 || max_y > 90.0 || min_x < -180.0 || max_x > 180.0
-        return false
-    end
-
-    # 2. Planar Cartesian origin check: non-negative coordinates starting near (0, 0)
-    if min_x >= 0.0 && min_y >= 0.0 && (min_x < 5.0 || min_y < 5.0) &&
-       (max_x <= 100.0 && max_y <= 100.0)
-        return false
-    end
-
-    # 3. Known marine fisheries regions (Atlantic Canada, Scotian Shelf, Pacific, Europe)
-    if (min_x <= -20.0 && max_x <= -10.0 && min_y >= 30.0 && max_y <= 85.0) ||
-       (min_x >= 100.0 && max_x <= 180.0 && min_y >= -50.0 && max_y <= 70.0) ||
-       (min_x >= -180.0 && max_x <= -50.0 && min_y >= -60.0 && max_y <= 75.0)
-        return true
-    end
-
-    # 4. Standard degrees span check
-    if (max_x - min_x > 0.1 || max_y - min_y > 0.1) &&
-       (min_x < -5.0 || max_x > 5.0 || min_y > 15.0 || min_y < -15.0)
-        return true
-    end
-
-    return false
-end
 
 """
     extract_wkt(au)::Union{Nothing, String}
@@ -1037,172 +1106,58 @@ function is_wgs84_wkt(wkt::Union{Nothing, AbstractString})::Bool
     if isnothing(wkt) || isempty(wkt)
         return false
     end
-    w = uppercase(string(wkt))
-    return contains(w, "4326") ||
-           contains(w, "WGS 84") ||
-           contains(w, "WGS_1984") ||
-           contains(w, "GCS_WGS_1984") ||
-           contains(w, "GEOGCS[\"WGS") ||
-           contains(w, "+PROJ=LONGLAT") ||
-           contains(w, "+PROJ=LATLONG")
+    return resolve_crs(wkt) === CoordRefSystems.get(EPSG{4326})
 end
 
 """
     CoordinateTransformer
 
-Encapsulates coordinate normalization and transformation from raw input space
-(geographic degrees, CoordRefSystems projection, UTM, or planar Cartesian) into WGS84
-geographic coordinates.
-
-# Fields
-- `mode::Symbol`: Transformation mode (`:geographic`, `:crs`, `:utm`, `:planar`).
-- `is_geo::Bool`: Whether the source coordinate system is geographic degrees.
-- `crs_type::Any`: CoordRefSystems CRS type or instance.
-- `utm_zone::Int`: UTM Longitudinal Zone (1 <= zone <= 60).
-- `utm_is_km::Bool`: Whether UTM inputs are in kilometers (`true`) or meters (`false`).
-- `northern::Bool`: Whether coordinate space resides in the Northern Hemisphere.
-- `scale::Float64`: Isometric scaling factor for planar coordinates.
-- `x_mean::Float64`: Center Easting / X offset for planar scaling.
-- `y_mean::Float64`: Center Northing / Y offset for planar scaling.
-- `lon_center::Float64`: Domain center longitude in degrees East.
-- `lat_center::Float64`: Domain center latitude in degrees North.
-- `wkt::Union{Nothing, String}`: Associated WKT definition string.
+A strict transformer from coordinates in one declared CRS to WGS84 longitude/latitude.
+The CRS is represented by a Tethys projection resolved through CoordRefSystems; coordinates
+are never classified by their numeric ranges.
 """
-struct CoordinateTransformer
-    mode::Symbol
-    is_geo::Bool
-    crs_type::Any
-    utm_zone::Int
-    utm_is_km::Bool
-    northern::Bool
-    scale::Float64
-    x_mean::Float64
-    y_mean::Float64
-    lon_center::Float64
-    lat_center::Float64
-    wkt::Union{Nothing, String}
+struct CoordinateTransformer{P <: AbstractProjection}
+    projection::P
+    crs_spec::String
 end
 
 """
-    build_coordinate_transformer(all_points; wkt=nothing, is_geo=nothing,
-                                 lon_center=-160.0, lat_center=0.0) -> CoordinateTransformer
+    build_coordinate_transformer(points; crs=nothing, wkt=nothing, is_geo=nothing)
 
-Infers coordinate system properties and constructs a `CoordinateTransformer` instance.
-
-# Inputs
-- `all_points`: Collection of 2D vertex coordinates or centroids.
-- `wkt`: Optional WKT definition string.
-- `is_geo`: Optional boolean override for geographic coordinates.
-- `lon_center::Float64`: Default center longitude for planar projection.
-- `lat_center::Float64`: Default center latitude for planar projection.
-
-# Outputs
-- `CoordinateTransformer`: Configured coordinate transformation engine.
+Build a transformer from an explicitly declared CRS. `points` is retained for API
+compatibility and must contain coordinate pairs, but its values are never used to infer a CRS.
+Set `is_geo=true` only as an explicit declaration when no CRS string is available.
 """
 function build_coordinate_transformer(
-    all_points;
+    points;
+    crs = nothing,
     wkt::Union{Nothing, AbstractString} = nothing,
     is_geo::Union{Nothing, Bool} = nothing,
-    lon_center::Float64 = -160.0,
-    lat_center::Float64 = 0.0
-)::CoordinateTransformer
-    wkt_str = !isnothing(wkt) ? string(wkt) : nothing
-    has_wgs84_wkt = is_wgs84_wkt(wkt_str)
-
-    # 1. Explicit geographic or WGS84 WKT
-    if is_geo === true || has_wgs84_wkt
-        return CoordinateTransformer(
-            :geographic, true, nothing, 20, false, true, 1.0, 0.0, 0.0, 0.0, 0.0, wkt_str
-        )
+    lon_center::Union{Nothing, Real} = nothing,
+    lat_center::Union{Nothing, Real} = nothing
+)
+    spec = !isnothing(wkt) && !isempty(strip(wkt)) ? String(wkt) : crs
+    if isnothing(spec) && is_geo === true
+        spec = "EPSG:4326"
     end
+    isnothing(spec) && throw(ArgumentError(
+        "A source CRS is required. Supply `crs` or `wkt`; coordinate ranges are not used " *
+        "to infer a coordinate system."))
 
-    # Extract all valid coordinates to determine spatial envelope
-    xs = Float64[]
-    ys = Float64[]
-    for pt in all_points
-        if length(pt) >= 2 && !isnan(pt[1]) && !isnan(pt[2])
-            push!(xs, float(pt[1]))
-            push!(ys, float(pt[2]))
-        end
-    end
-
-    min_x = !isempty(xs) ? minimum(xs) : 0.0
-    max_x = !isempty(xs) ? maximum(xs) : 0.0
-    min_y = !isempty(ys) ? minimum(ys) : 0.0
-    max_y = !isempty(ys) ? maximum(ys) : 0.0
-
-    # 2. Check for UTM signatures or EPSG codes in WKT / metadata
-    is_utm_wkt = !isnothing(wkt_str) && contains(lowercase(wkt_str), "utm")
-    utm_zone = 20
-    is_north = true
-    if is_utm_wkt
-        m_zone = match(r"zone\s*=?\s*(\d+)", lowercase(wkt_str))
-        if m_zone !== nothing
-            utm_zone = parse(Int, m_zone.captures[1])
-        end
-        if contains(lowercase(wkt_str), "south")
-            is_north = false
-        end
-    end
-
-    # Check EPSG code directly if present in WKT / CRS
-    if !isnothing(wkt_str)
-        m_epsg = match(r"epsg[:\s]+(\d+)"i, wkt_str)
-        if m_epsg !== nothing
-            code = parse(Int, m_epsg.captures[1])
-            if 32601 <= code <= 32660
-                utm_zone = code - 32600
-                is_north = true
-                is_utm_wkt = true
-            elseif 32701 <= code <= 32760
-                utm_zone = code - 32700
-                is_north = false
-                is_utm_wkt = true
-            end
-        end
-    end
-
-    is_utm_km = (min_x >= 50.0 && max_x <= 1500.0 && min_y >= 1000.0 && max_y <= 9000.0)
-    is_utm_m = (min_x >= 50000.0 && min_y >= 1000000.0)
-
-    if is_utm_wkt || is_utm_km || is_utm_m
-        is_km = is_utm_km ||
-            (!is_utm_m && !contains(lowercase(something(wkt_str, "")), "units=m"))
-        crs = is_north ? utmnorth(utm_zone) : utmsouth(utm_zone)
-        return CoordinateTransformer(
-            :utm, true, crs, utm_zone, is_km, is_north, 1.0, 0.0, 0.0, 0.0, 0.0, wkt_str
-        )
-    end
-
-    geo_flag = if is_geo !== nothing
-        is_geo
-    else
-        is_geographic_coordinates(all_points)
-    end
-
-    if geo_flag
-        return CoordinateTransformer(
-            :geographic, true, nothing, 20, true, true, 1.0, 0.0, 0.0, 0.0, 0.0, wkt_str
-        )
-    end
-
-    if isempty(xs) || isempty(ys)
-        return CoordinateTransformer(
-            :planar, false, nothing, 20, true, true,
-            1.0, 0.0, 0.0, lon_center, lat_center, wkt_str
-        )
-    end
-
-    dx = max_x - min_x
-    dy = max_y - min_y
-    x_bar = (min_x + max_x) / 2.0
-    y_bar = (min_y + max_y) / 2.0
-    s = dy > 1e-9 ? 1.0 / dy : (dx > 1e-9 ? 1.0 / dx : 1.0)
-
-    return CoordinateTransformer(
-        :planar, false, nothing, 20, true, true,
-        s, x_bar, y_bar, lon_center, lat_center, wkt_str
+    projection = create_projection(
+        projection = spec,
+        lon_center = lon_center,
+        lat_center = lat_center
     )
+    if is_geo === true && is_planar(projection)
+        throw(ArgumentError("is_geo=true conflicts with the declared projected CRS $(repr(spec))."))
+    elseif is_geo === false && !is_planar(projection)
+        throw(ArgumentError("is_geo=false conflicts with the declared geographic CRS $(repr(spec))."))
+    end
+    for point in points
+        length(point) >= 2 || throw(ArgumentError("Every coordinate must contain at least x and y."))
+    end
+    return CoordinateTransformer(projection, string(spec))
 end
 
 """
@@ -1219,41 +1174,8 @@ using transformer `tf`.
 - `Tuple{Float64, Float64}`: Geographic coordinates `(lon, lat)` in decimal degrees.
 """
 function transform_point(tf::CoordinateTransformer, pt)::Tuple{Float64, Float64}
-    x, y = float(pt[1]), float(pt[2])
-    # 1. If coordinate is already in standard geographic WGS84 range
-    if -180.0 <= x <= 180.0 && -90.0 <= y <= 90.0
-        return (x, y)
-    end
-
-    # 2. CoordRefSystems transformation mode
-    if tf.mode == :utm || tf.mode == :crs
-        if !isnothing(tf.crs_type)
-            try
-                scale_m = tf.utm_is_km ? 1000.0 : 1.0
-                pt_crs = tf.crs_type((x * scale_m) * m, (y * scale_m) * m)
-                ll = convert(LatLon, pt_crs)
-                lon = Float64(ll.lon / °)
-                lat = Float64(ll.lat / °)
-                if !isnan(lon) && !isnan(lat) && isfinite(lon) && isfinite(lat)
-                    return (lon, lat)
-                end
-            catch
-            end
-        end
-        return utm_to_lonlat(
-            x, y; zone = tf.utm_zone, is_km = tf.utm_is_km, northern = tf.northern
-        )
-    end
-
-    # 3. If explicit geographic mode
-    if tf.is_geo
-        return (x, y)
-    end
-
-    # 4. Fallback planar isometric projection
-    lon = (x - tf.x_mean) * tf.scale + tf.lon_center
-    lat = (y - tf.y_mean) * tf.scale + tf.lat_center
-    return (lon, lat)
+    length(pt) >= 2 || throw(ArgumentError("A coordinate must contain at least x and y."))
+    return inverse_project(tf.projection, Float64(pt[1]), Float64(pt[2]))
 end
 
 """

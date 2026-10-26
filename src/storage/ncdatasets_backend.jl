@@ -27,7 +27,7 @@ function backend_open(backend::NCDatasetsBackend, uri::AbstractString;
     mode = haskey(kwargs, :mode) ? kwargs[:mode] : "r"
     fmt = something(format, _infer_format(path, backend))
     NCDataset(path, mode; format = fmt) do ds
-        crs = CoordinateSystem(crs = something(get(ds.attrib, "crs", nothing), "EPSG:4326"))
+        crs = _dataset_crs(ds)
         coords = Dict{Symbol, GeoArray}()
         dims = Dict{Symbol, Dimension}()
         vars = Dict{String, GeoArray}()
@@ -57,6 +57,40 @@ function backend_open(backend::NCDatasetsBackend, uri::AbstractString;
 
         return GeoDataset(vars, coords, dims, crs, Dict(ds.attrib), backend, path)
     end
+end
+
+function _dataset_crs(ds)
+    crs = CoordinateSystem(Dict(string(k) => v for (k, v) in ds.attrib))
+    for (_, variable) in ds
+        mapping_name = get(variable.attrib, "grid_mapping", nothing)
+        mapping_name === nothing && continue
+        key = string(mapping_name)
+        haskey(ds, key) || throw(ArgumentError(
+            "NetCDF variable references missing grid_mapping $(repr(key))."))
+        mapping_attrs = Dict{String, Any}()
+        for (k, v) in ds[key].attrib
+            mapping_attrs[string(k)] = v
+        end
+        mapping_crs = CoordinateSystem(mapping_attrs)
+        if !is_cartesian(mapping_crs)
+            crs = _merge_coordinate_systems(crs, mapping_crs)
+            break
+        end
+    end
+    return crs
+end
+
+function _merge_coordinate_systems(a::CoordinateSystem, b::CoordinateSystem)
+    !isempty(a.crs) && !isempty(b.crs) && a.crs != b.crs && throw(ArgumentError(
+        "NetCDF global and grid_mapping CRS identifiers disagree."))
+    !isnothing(a.wkt) && !isnothing(b.wkt) && a.wkt != b.wkt && throw(ArgumentError(
+        "NetCDF global and grid_mapping WKT definitions disagree."))
+    !isnothing(a.proj4) && !isnothing(b.proj4) && a.proj4 != b.proj4 && throw(ArgumentError(
+        "NetCDF global and grid_mapping PROJ definitions disagree."))
+    return CoordinateSystem(
+        crs = isempty(a.crs) ? b.crs : a.crs,
+        wkt = isnothing(a.wkt) ? b.wkt : a.wkt,
+        proj4 = isnothing(a.proj4) ? b.proj4 : a.proj4)
 end
 
 function _infer_format(path::AbstractString, backend::NCDatasetsBackend)
@@ -232,7 +266,14 @@ function backend_write(backend::NCDatasetsBackend, uri::AbstractString,
             ds_file[name][ntuple(_ -> Colon(), ndims(ga))...] = ga.data
         end
 
-        for (k, v) in ds.attrs
+        dataset_attrs = copy(ds.attrs)
+        for (k, v) in coordinate_system_attributes(ds.crs)
+            if haskey(dataset_attrs, k) && string(dataset_attrs[k]) != string(v)
+                throw(ArgumentError("Dataset attribute $(repr(k)) conflicts with its CoordinateSystem."))
+            end
+            dataset_attrs[k] = v
+        end
+        for (k, v) in dataset_attrs
             ds_file.attrib[k] = _nc_attrib_value(v)
         end
     finally

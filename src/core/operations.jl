@@ -11,6 +11,8 @@ module Operations
 using ..Types
 using ..Coordinates
 using ..Backends
+using ..CRS: AbstractProjection, GeographicProjection, projection_from_crs,
+            transform_coordinates, projection_signature
 using LinearAlgebra
 using Statistics
 using SparseArrays
@@ -520,34 +522,84 @@ Regrid dataset to a target grid.
 Regridded `GeoDataset`.
 """
 function regrid(ds::GeoDataset, target::GeoDataset; method::Symbol=:bilinear, vars::Vector{String}=String[])
+    method in (:bilinear, :nearest) || throw(ArgumentError(
+        "Unsupported regrid method $(repr(method)); choose :bilinear or :nearest."))
     isempty(vars) && (vars = collect(keys(ds.variables)))
 
     target_coords = Dict{Symbol, Vector{Float64}}()
-    for dim in (:lon, :lat, :depth, :time)
-        if haskey(target.coords, dim)
-            target_coords[dim] = vec(Float64.(target.coords[dim].data))
+    for (name, coord) in target.coords
+        canonical = standardize_dimension_name(name)
+        canonical in (:lon, :lat, :depth, :time) || continue
+        target_coords[canonical] = vec(Float64.(coord.data))
+    end
+    for (name, dim) in target.dims
+        canonical = standardize_dimension_name(name)
+        canonical in (:lon, :lat, :depth, :time) || continue
+        if !haskey(target_coords, canonical) && dim.coords !== nothing
+            target_coords[canonical] = vec(Float64.(dim.coords))
         end
     end
 
+    source_projection = _dataset_projection(ds)
+    target_projection = _dataset_projection(target)
+    reprojecting = projection_signature(source_projection) != projection_signature(target_projection)
+
     new_vars = Dict{String, GeoArray}()
     for name in vars
+        haskey(ds.variables, name) || throw(ArgumentError("Dataset has no variable $(repr(name))."))
         ga = ds.variables[name]
-        new_data = _regrid_array(ga, target_coords, method)
-        new_dims = _build_dims_from_target(ga, target_coords)
+        new_data = reprojecting ?
+            _regrid_array_between_crs(ga, ds, target, source_projection, target_projection,
+                                      target_coords, method) :
+            _regrid_array(ga, target_coords, method)
+        new_dims = _build_dims_from_target(ga, target_coords, target.dims)
         new_vars[name] = GeoArray(new_data, new_dims, target.crs, ga.attrs)
     end
 
     return GeoDataset(new_vars, target.coords, target.dims, target.crs, ds.attrs, ds.backend, ds.source)
 end
 
-function _build_dims_from_target(ga::GeoArray, target_coords::Dict{Symbol, Vector{Float64}})
+function _dataset_projection(ds::GeoDataset)
+    crs = ds.crs
+    if isempty(strip(crs.crs)) && (isnothing(crs.wkt) || isempty(strip(crs.wkt))) &&
+       (isnothing(crs.proj4) || isempty(strip(crs.proj4)))
+        _, lon_dim = axis(ds, :lon)
+        _, lat_dim = axis(ds, :lat)
+        lon_units = lowercase(strip(something(lon_dim.units, "")))
+        lat_units = lowercase(strip(something(lat_dim.units, "")))
+        lon_units in ("degrees_east", "degree_east", "degrees east") &&
+        lat_units in ("degrees_north", "degree_north", "degrees north") ||
+            throw(ArgumentError("Dataset $(repr(ds.source)) has no declared CRS. Provide CRS/WKT " *
+                                "metadata; only explicit CF longitude/latitude degree units " *
+                                "identify EPSG:4326."))
+        return GeographicProjection()
+    end
+    return projection_from_crs(crs)
+end
+
+function _build_dims_from_target(
+    ga::GeoArray,
+    target_coords::Dict{Symbol, Vector{Float64}},
+    target_dims::Dict{Symbol, Dimension} = Dict{Symbol, Dimension}()
+)
     new_dims = Dimension[]
     for dim in ga.dims
-        if haskey(target_coords, dim.name)
-            tc = target_coords[dim.name]
-            push!(new_dims, Dimension(name=dim.name, size=length(tc), coords=tc,
-                                      units=dim.units, standard_name=dim.standard_name,
-                                      calendar=dim.calendar, is_unlimited=dim.is_unlimited))
+        canonical = standardize_dimension_name(dim.name)
+        target_name = findfirst(k -> standardize_dimension_name(k) == canonical,
+                                collect(keys(target_dims)))
+        if haskey(target_coords, canonical)
+            tc = target_coords[canonical]
+            target_dim = target_name === nothing ? nothing : target_dims[collect(keys(target_dims))[target_name]]
+            if target_dim === nothing
+                push!(new_dims, Dimension(name=dim.name, size=length(tc), coords=tc,
+                                          units=dim.units, standard_name=dim.standard_name,
+                                          calendar=dim.calendar, is_unlimited=dim.is_unlimited))
+            else
+                push!(new_dims, Dimension(name=target_dim.name, size=length(tc), coords=tc,
+                                          units=target_dim.units, standard_name=target_dim.standard_name,
+                                          calendar=target_dim.calendar,
+                                          is_unlimited=target_dim.is_unlimited))
+            end
         else
             push!(new_dims, dim)
         end
@@ -558,9 +610,10 @@ end
 function _regrid_array(ga::GeoArray, target_coords::Dict{Symbol, Vector{Float64}}, method::Symbol)
     data = ga.data
     for (i, dim) in enumerate(ga.dims)
-        if haskey(target_coords, dim.name) && !isnothing(dim.coords) && !isempty(dim.coords)
+        canonical = standardize_dimension_name(dim.name)
+        if haskey(target_coords, canonical) && !isnothing(dim.coords) && !isempty(dim.coords)
             src = vec(Float64.(dim.coords))
-            tgt = target_coords[dim.name]
+            tgt = target_coords[canonical]
             if method === :nearest
                 data = _resample_nearest(data, i, src, tgt)
             else
@@ -569,6 +622,64 @@ function _regrid_array(ga::GeoArray, target_coords::Dict{Symbol, Vector{Float64}
         end
     end
     return data
+end
+
+function _regrid_array_between_crs(ga, source, target, source_projection,
+                                   target_projection, target_coords, method)
+    source_x, _ = axis(source, :lon)
+    source_y, _ = axis(source, :lat)
+    target_x = get(target_coords, :lon, nothing)
+    target_y = get(target_coords, :lat, nothing)
+    (target_x === nothing || target_y === nothing) && throw(ArgumentError(
+        "CRS-changing regrids require both horizontal target axes (:lon/:lat or :x/:y)."))
+    ix, iy = dim_permutation(ga.dims, :lon, :lat)
+    permutation = vcat([ix, iy], [i for i in eachindex(ga.dims) if i != ix && i != iy])
+    ordered = permutedims(Array(ga.data), permutation)
+    size(ordered, 1) == length(source_x) && size(ordered, 2) == length(source_y) ||
+        throw(DimensionMismatch("Variable $(repr(ga)) horizontal dimensions do not match source axes."))
+
+    mapped_x = Matrix{Float64}(undef, length(target_x), length(target_y))
+    mapped_y = similar(mapped_x)
+    for j in eachindex(target_y), i in eachindex(target_x)
+        mapped_x[i, j], mapped_y[i, j] = transform_coordinates(
+            target_projection, source_projection, target_x[i], target_y[j])
+    end
+
+    source_3d = reshape(ordered, length(source_x), length(source_y), :)
+    output_3d = Array{eltype(ordered)}(undef, length(target_x), length(target_y), size(source_3d, 3))
+    for k in axes(source_3d, 3), j in eachindex(target_y), i in eachindex(target_x)
+        output_3d[i, j, k] = _sample_rectilinear(
+            source_3d[:, :, k], source_x, source_y, mapped_x[i, j], mapped_y[i, j], method)
+    end
+    ordered_result = reshape(output_3d, (length(target_x), length(target_y), size(ordered)[3:end]...))
+    result = permutedims(ordered_result, invperm(permutation))
+
+    horizontal_coords = Dict(:lon => target_x, :lat => target_y)
+    result_dims = _build_dims_from_target(ga, horizontal_coords, target.dims)
+    remaining_coords = Dict{Symbol, Vector{Float64}}(
+        k => v for (k, v) in target_coords if k ∉ (:lon, :lat))
+    isempty(remaining_coords) && return result
+    return _regrid_array(GeoArray(result, result_dims, ga.crs, ga.attrs), remaining_coords, method)
+end
+
+function _sample_rectilinear(field, xs, ys, x, y, method)
+    issorted(xs) && issorted(ys) || throw(ArgumentError(
+        "Source CRS axes must be monotonically ascending before regridding."))
+    if method === :nearest
+        return field[findmin(abs.(xs .- x))[2], findmin(abs.(ys .- y))[2]]
+    end
+    ix = clamp(searchsortedlast(xs, x), 1, max(length(xs) - 1, 1))
+    iy = clamp(searchsortedlast(ys, y), 1, max(length(ys) - 1, 1))
+    length(xs) >= 2 && length(ys) >= 2 || throw(ArgumentError(
+        "Bilinear CRS regridding requires at least two points on each source axis."))
+    x0, x1 = xs[ix], xs[ix + 1]
+    y0, y1 = ys[iy], ys[iy + 1]
+    fx = clamp((x - x0) / (x1 - x0), 0.0, 1.0)
+    fy = clamp((y - y0) / (y1 - y0), 0.0, 1.0)
+    return (1 - fx) * (1 - fy) * field[ix, iy] +
+           fx * (1 - fy) * field[ix + 1, iy] +
+           (1 - fx) * fy * field[ix, iy + 1] +
+           fx * fy * field[ix + 1, iy + 1]
 end
 
 function _resample_linear(data, dim::Int, src::Vector{Float64}, tgt::Vector{Float64})

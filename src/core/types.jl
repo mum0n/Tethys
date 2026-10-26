@@ -8,7 +8,7 @@ module Types
 using Base: @kwdef
 
 export DimensionType, DIM_SPATIAL, DIM_TEMPORAL, DIM_PARAMETRIC, DIM_GENERIC,
-       Dimension, CoordinateSystem, GeoArray, GeoDataset,
+       Dimension, CoordinateSystem, coordinate_system_attributes, GeoArray, GeoDataset,
        GeoBackend, BackendCapabilities, is_cartesian
 
 """
@@ -68,7 +68,43 @@ Coordinate Reference System description.
     wkt::Union{String, Nothing} = nothing
 end
 
-is_cartesian(crs::CoordinateSystem) = isempty(crs.crs)
+function CoordinateSystem(attrs::AbstractDict)
+    getstr(keys, default = nothing) = begin
+        value = nothing
+        for key in keys
+            if haskey(attrs, key)
+                value = attrs[key]
+                break
+            elseif haskey(attrs, Symbol(key))
+                value = attrs[Symbol(key)]
+                break
+            end
+        end
+        isnothing(value) || isempty(strip(string(value))) ? default : string(value)
+    end
+    crs_value = getstr(("crs", "epsg_code"), "")
+    wkt_value = getstr(("crs_wkt", "spatial_ref", "wkt"))
+    if isempty(crs_value) == false && occursin(r"^(GEOGCS|PROJCS|GEODCRS|GEOGCRS|PROJCRS|COMPOUNDCRS)\s*\["i, crs_value)
+        isnothing(wkt_value) || wkt_value == crs_value || throw(ArgumentError(
+            "Coordinate metadata contains conflicting WKT definitions."))
+        wkt_value = crs_value
+        crs_value = ""
+    end
+    return CoordinateSystem(crs = crs_value,
+                            proj4 = getstr(("proj4", "proj4text")),
+                            wkt = wkt_value)
+end
+
+"""Serialize only explicitly declared CRS values into backend metadata."""
+function coordinate_system_attributes(crs::CoordinateSystem)
+    attrs = Dict{String, Any}()
+    !isempty(crs.crs) && (attrs["crs"] = crs.crs)
+    !isnothing(crs.wkt) && (attrs["crs_wkt"] = crs.wkt)
+    !isnothing(crs.proj4) && (attrs["proj4"] = crs.proj4)
+    return attrs
+end
+
+is_cartesian(crs::CoordinateSystem) = isempty(crs.crs) && isnothing(crs.wkt) && isnothing(crs.proj4)
 
 """
     GeoArray{T, N, A <: AbstractArray{T, N}}

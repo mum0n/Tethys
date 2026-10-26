@@ -71,17 +71,24 @@ a fact about the dataset, not something to invent.
 """
 function axis(ds::GeoDataset, name::Symbol)
     canonical = standardize_dimension_name(name)
-    if haskey(ds.coords, canonical)
-        return vec(Float64.(ds.coords[canonical].data)), ds.dims[canonical]
+    coord_keys = filter(k -> standardize_dimension_name(k) == canonical, collect(keys(ds.coords)))
+    dim_keys = filter(k -> standardize_dimension_name(k) == canonical, collect(keys(ds.dims)))
+    length(coord_keys) <= 1 || throw(ArgumentError(
+        "Dataset has ambiguous coordinate aliases for axis :$(canonical): $(coord_keys)."))
+    length(dim_keys) <= 1 || throw(ArgumentError(
+        "Dataset has ambiguous dimension aliases for axis :$(canonical): $(dim_keys)."))
+
+    coord_key = isempty(coord_keys) ? nothing : first(coord_keys)
+    dim_key = isempty(dim_keys) ? nothing : first(dim_keys)
+    if coord_key !== nothing
+        coord = ds.coords[coord_key]
+        dimension = dim_key === nothing ? first(coord.dims) : ds.dims[dim_key]
+        return vec(Float64.(coord.data)), dimension
     end
-    # A dimension that declares coords IS an axis. Producers are free to carry the
-    # coordinate values on the `Dimension` rather than also duplicating them as a
-    # coordinate `GeoArray` in `ds.coords`; without this fallback such a dataset (e.g.
-    # the benthic and ETOPO bathymetry products) declares a lon it then cannot read.
-    if haskey(ds.dims, canonical) &&
-       ds.dims[canonical].coords !== nothing &&
-       !isempty(ds.dims[canonical].coords)
-        return vec(Float64.(ds.dims[canonical].coords)), ds.dims[canonical]
+    # A dimension that declares coordinates is itself an axis; do not invent values.
+    if dim_key !== nothing && ds.dims[dim_key].coords !== nothing &&
+       !isempty(ds.dims[dim_key].coords)
+        return vec(Float64.(ds.dims[dim_key].coords)), ds.dims[dim_key]
     end
     error("Dataset has no $(canonical) axis. It has: $(sort(collect(keys(ds.coords)))).")
 end

@@ -156,6 +156,47 @@ println("Running Tethys test segments: ", join(ACTIVE_SEGMENTS, ", "))
             @test isapprox(u_back, u_geo; atol = 1e-10)
             @test isapprox(v_back, v_geo; atol = 1e-10)
             @test isapprox(hypot(u_rot, v_rot), hypot(u_geo, v_geo); atol = 1e-10)
+
+            @testset "Declared CRS is mandatory and drives coordinate transforms" begin
+                @test_throws ArgumentError build_coordinate_transformer([(1.0, 2.0)])
+                tf = build_coordinate_transformer([(500_000.0, 4_900_000.0)]; crs = "EPSG:32620")
+                expected = project_inverse(proj_utm, 500_000.0, 4_900_000.0)
+                actual = transform_point(tf, (500_000.0, 4_900_000.0))
+                @test isapprox(actual[1], expected[1]; atol = 1e-8)
+                @test isapprox(actual[2], expected[2]; atol = 1e-8)
+                @test_throws ArgumentError create_projection(crs =
+                    "PROJCS[\"Unregistered local CRS\",GEOGCS[\"WGS 84\"]]")
+            end
+
+            @testset "Regrid transforms target coordinates through declared CRS" begin
+                source_x = [500_000.0, 600_000.0]
+                source_y = [4_900_000.0, 5_000_000.0]
+                source_crs = CoordinateSystem(crs = "EPSG:32620")
+                dx = Dimension(name = :x, size = 2, coords = source_x, units = "m")
+                dy = Dimension(name = :y, size = 2, coords = source_y, units = "m")
+                values = [x + 2y for x in source_x, y in source_y]
+                source = GeoDataset(
+                    Dict("field" => GeoArray(values, (dx, dy), source_crs)),
+                    Dict(:x => GeoArray(source_x, (dx,), source_crs),
+                         :y => GeoArray(source_y, (dy,), source_crs)),
+                    Dict(:x => dx, :y => dy), source_crs, Dict{String, Any}(), nothing, "utm")
+
+                lon0, lat0 = project_inverse(proj_utm, 550_000.0, 4_950_000.0)
+                target_crs = CoordinateSystem(crs = "EPSG:4326")
+                dlon = Dimension(name = :lon, size = 1, coords = [lon0], units = "degrees_east")
+                dlat = Dimension(name = :lat, size = 1, coords = [lat0], units = "degrees_north")
+                target = GeoDataset(
+                    Dict{String, GeoArray}(),
+                    Dict(:lon => GeoArray([lon0], (dlon,), target_crs),
+                         :lat => GeoArray([lat0], (dlat,), target_crs)),
+                    Dict(:lon => dlon, :lat => dlat), target_crs,
+                    Dict{String, Any}(), nothing, "wgs84_target")
+                result = regrid_dataset(source, target)
+                @test isapprox(result.variables["field"].data[1, 1],
+                               550_000.0 + 2 * 4_950_000.0; atol = 1e-4)
+                @test result.variables["field"].dims[1].name == :lon
+                @test result.variables["field"].dims[2].name == :lat
+            end
         end
     end
 
@@ -182,6 +223,25 @@ println("Running Tethys test segments: ", join(ACTIVE_SEGMENTS, ", "))
                 @test haskey(loaded_ds, "var1")
                 @test size(loaded_ds["var1"]) == (5, 4)
                 @test isapprox(loaded_ds["var1"][:, :], arr; atol = 1e-8)
+
+                wkt_utm = "PROJCS[\"WGS 84 / UTM zone 20N\",GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]],PROJECTION[\"Transverse_Mercator\"],PARAMETER[\"latitude_of_origin\",0],PARAMETER[\"central_meridian\",-63],PARAMETER[\"scale_factor\",0.9996],PARAMETER[\"false_easting\",500000],PARAMETER[\"false_northing\",0],UNIT[\"metre\",1],AUTHORITY[\"EPSG\",\"32620\"]]"
+                declared_crs = CoordinateSystem(crs = "EPSG:32620", wkt = wkt_utm)
+                crs_ds = GeoDataset(ds.variables, ds.coords, ds.dims, declared_crs,
+                                    ds.attrs, nothing, "crs_roundtrip")
+
+                crs_zarr_path = joinpath(tmp, "crs_dataset.zarr")
+                save_dataset(crs_zarr_path, crs_ds; backend = :zarr, overwrite = true)
+                loaded_crs_zarr = load_dataset(crs_zarr_path; backend = :zarr)
+                @test loaded_crs_zarr.crs.crs == declared_crs.crs
+                @test loaded_crs_zarr.crs.wkt == declared_crs.wkt
+                @test is_planar(projection_from_crs(loaded_crs_zarr.crs))
+
+                crs_netcdf_path = joinpath(tmp, "crs_dataset.nc")
+                save_dataset(crs_netcdf_path, crs_ds; backend = :ncdatasets, overwrite = true)
+                loaded_crs_netcdf = load_dataset(crs_netcdf_path; backend = :ncdatasets)
+                @test loaded_crs_netcdf.crs.crs == declared_crs.crs
+                @test loaded_crs_netcdf.crs.wkt == declared_crs.wkt
+                @test is_planar(projection_from_crs(loaded_crs_netcdf.crs))
 
                 # GeoStorage abstraction
                 gs_path = joinpath(tmp, "archive.zarr")

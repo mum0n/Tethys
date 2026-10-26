@@ -68,6 +68,29 @@ function _extract_points(geoms)
     return (lons, lats)
 end
 
+function _geoparquet_coordinate_system(table)
+    metadata = GeoInterface.crs(table)
+    isnothing(metadata) && return CoordinateSystem(crs = "EPSG:4326")
+    value = hasproperty(metadata, :val) ? getproperty(metadata, :val) : metadata
+    if value isa AbstractString
+        return CoordinateSystem(Dict("wkt" => value))
+    elseif value isa AbstractDict
+        id = get(value, "id", nothing)
+        if id isa AbstractDict
+            authority = uppercase(string(get(id, "authority", "")))
+            code = string(get(id, "code", ""))
+            if authority in ("EPSG", "ESRI") && !isempty(code)
+                return CoordinateSystem(crs = "$authority:$code")
+            elseif authority == "OGC" && uppercase(code) == "CRS84"
+                return CoordinateSystem(crs = "EPSG:4326")
+            end
+        end
+        throw(ArgumentError("GeoParquet declares a PROJJSON CRS without a CoordRefSystems " *
+                            "identifier; supply a CRS that CoordRefSystems can resolve."))
+    end
+    throw(ArgumentError("Unsupported GeoParquet CRS metadata type $(typeof(metadata))."))
+end
+
 function backend_open(backend::GeoParquetBackend, uri::AbstractString; kwargs...)
     path = strip_scheme(uri)
     isfile(path) || error("Cannot open GeoParquet file '$(uri)': file does not exist.")
@@ -75,7 +98,7 @@ function backend_open(backend::GeoParquetBackend, uri::AbstractString; kwargs...
     n_points = nrow(df)
     n_points > 0 || error("Cannot open GeoParquet file '$(uri)': the table is empty.")
 
-    crs = CoordinateSystem(crs = "EPSG:4326")
+    crs = _geoparquet_coordinate_system(df)
     points_dim = Dimension(name = :points, size = n_points, coords = nothing)
     dims = Dict{Symbol, Dimension}(:points => points_dim)
     coords = Dict{Symbol, GeoArray}()

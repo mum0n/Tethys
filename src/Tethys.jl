@@ -299,14 +299,16 @@ export
     parse_cli_args, display_cli_summary, print_cli_help,
 
     # Coordinate Reference Systems & Projections
-    AbstractProjection, GeographicProjection, CoordRefSystemsProjection, UTMProjection,
+    AbstractProjection, GeographicProjection, CoordRefSystemsGeographicProjection,
+    CoordRefSystemsProjection, UTMProjection,
     LambertProjection, MercatorProjection, RotatedFrame, ReprojectionGrid,
     is_planar, resolve_crs, create_projection, build_projection, forward_project, inverse_project,
     project_forward, project_inverse, grid_convergence_angle, geographic_to_rotated,
     rotated_to_geographic, rotate_vector, unrotate_vector, rotate_vector_to_grid, rotate_vector_to_geo,
     reproject_to_geographic, reproject_field, optimal_shelf_rotation_angle,
-    utm_to_lonlat, lonlat_to_utm, is_geographic_coordinates, extract_wkt, is_wgs84_wkt,
+    utm_to_lonlat, lonlat_to_utm, extract_wkt, is_wgs84_wkt,
     CoordinateTransformer, build_coordinate_transformer, transform_point, transform_polygon,
+    projection_from_crs, transform_coordinates, transform_vector_dataset, projection_signature,
 
     # Coordinates & operations
     axis, require_coord, to_positive_down, dim_permutation, normalize_depth,
